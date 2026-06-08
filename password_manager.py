@@ -3,13 +3,16 @@ import json
 import base64
 import sqlite3
 import webbrowser
+import secrets
+import hashlib
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-import secrets
+import threading
+import time
 
 class SecurePasswordVault:
     def __init__(self):
@@ -42,7 +45,6 @@ class SecurePasswordVault:
         conn.close()
     
     def derive_key(self, master_password, salt):
-        """Derive encryption key using PBKDF2"""
         kdf = PBKDF2(
             algorithm=hashes.SHA256(),
             length=32,
@@ -53,7 +55,6 @@ class SecurePasswordVault:
         return kdf.derive(master_password.encode())
     
     def encrypt(self, data):
-        """Encrypt data using AES-256-GCM"""
         iv = secrets.token_bytes(12)
         cipher = Cipher(algorithms.AES(self.master_key), modes.GCM(iv), backend=default_backend())
         encryptor = cipher.encryptor()
@@ -61,7 +62,6 @@ class SecurePasswordVault:
         return base64.b64encode(iv + encryptor.tag + encrypted).decode()
     
     def decrypt(self, encrypted_data):
-        """Decrypt data using AES-256-GCM"""
         raw = base64.b64decode(encrypted_data)
         iv = raw[:12]
         tag = raw[12:28]
@@ -72,20 +72,17 @@ class SecurePasswordVault:
         return decrypted.decode()
     
     def setup_master_password(self):
-        """First-time setup or master password verification"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
         cursor.execute("SELECT salt FROM config WHERE key='master_salt'")
         result = cursor.fetchone()
         conn.close()
         
         if not result:
-            # First time setup
-            master_pw = simpledialog.askstring("Setup", "Create master password:", show='*')
+            master_pw = simpledialog.askstring("Setup", "CREATE MASTER PASSWORD:", show='*')
             if not master_pw:
                 return False
-            confirm = simpledialog.askstring("Setup", "Confirm master password:", show='*')
+            confirm = simpledialog.askstring("Setup", "CONFIRM MASTER PASSWORD:", show='*')
             if master_pw != confirm:
                 messagebox.showerror("Error", "Passwords don't match")
                 return False
@@ -101,29 +98,24 @@ class SecurePasswordVault:
             conn.close()
             return True
         else:
-            # Existing user
             salt = base64.b64decode(result[0])
-            master_pw = simpledialog.askstring("Login", "Enter master password:", show='*')
+            master_pw = simpledialog.askstring("Login", "ENTER MASTER PASSWORD:", show='*')
             if master_pw:
                 self.master_key = self.derive_key(master_pw, salt)
                 return True
         return False
     
     def add_credential(self, name, url, username, password):
-        """Add new credential (encrypted)"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
         encrypted_username = self.encrypt(username)
         encrypted_password = self.encrypt(password)
-        
         cursor.execute("INSERT INTO credentials (name, url, username, password) VALUES (?, ?, ?, ?)",
                       (name, url, encrypted_username, encrypted_password))
         conn.commit()
         conn.close()
     
     def get_credentials(self):
-        """Retrieve and decrypt all credentials"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT id, name, url, username, password FROM credentials")
@@ -152,22 +144,16 @@ class SecurePasswordVault:
         conn.close()
     
     def launch_and_login(self, url, username, password):
-        """Open browser and copy credentials to clipboard"""
-        # Copy to clipboard (user pastes manually - secure approach)
         self.clipboard_clear()
         self.clipboard_append(username)
-        messagebox.showinfo("Info", f"Username copied! Opening {url}\nPaste username, then password will be copied.")
-        
+        messagebox.showinfo("Info", f"✓ Username copied!\n\nOpening: {url}\n\nPaste username, then password will auto-copy")
         webbrowser.open(url)
         
-        # After browser opens, copy password
-        import threading
         def copy_password():
-            import time
-            time.sleep(3)  # Give user time to click username field
+            time.sleep(3)
             self.clipboard_clear()
             self.clipboard_append(password)
-            messagebox.showinfo("Info", "Password copied to clipboard!")
+            messagebox.showinfo("Info", "✓ Password copied to clipboard!")
         
         threading.Thread(target=copy_password, daemon=True).start()
 
@@ -176,9 +162,8 @@ class VaultGUI:
         self.vault = vault
         self.root = tk.Tk()
         self.root.title("Secure Password Vault")
-        self.root.geometry("800x500")
+        self.root.geometry("900x600")
         
-        # Apply modern styling
         style = ttk.Style()
         style.theme_use('clam')
         
@@ -186,22 +171,20 @@ class VaultGUI:
         self.refresh_list()
     
     def setup_ui(self):
-        # Toolbar
         toolbar = ttk.Frame(self.root)
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         
-        ttk.Button(toolbar, text="Add New", command=self.add_dialog).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Delete Selected", command=self.delete_selected).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Launch & Login", command=self.launch_selected).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_list).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="➕ ADD NEW", command=self.add_dialog).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="❌ DELETE", command=self.delete_selected).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🚀 LAUNCH & LOGIN", command=self.launch_selected).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🔄 REFRESH", command=self.refresh_list).pack(side=tk.LEFT, padx=2)
         
-        # Tree view
         columns = ('Name', 'URL', 'Username')
-        self.tree = ttk.Treeview(self.root, columns=columns, show='headings')
+        self.tree = ttk.Treeview(self.root, columns=columns, show='headings', height=25)
         
         for col in columns:
             self.tree.heading(col, text=col)
-            self.tree.column(col, width=250)
+            self.tree.column(col, width=280)
         
         scrollbar = ttk.Scrollbar(self.root, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -209,28 +192,27 @@ class VaultGUI:
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=5)
         
-        # Status bar
         self.status = ttk.Label(self.root, text="Ready", relief=tk.SUNKEN)
         self.status.pack(side=tk.BOTTOM, fill=tk.X)
     
     def add_dialog(self):
         dialog = tk.Toplevel(self.root)
-        dialog.title("Add Credential")
-        dialog.geometry("400x300")
+        dialog.title("Add New Credential")
+        dialog.geometry("450x350")
         
-        ttk.Label(dialog, text="Name:").pack(pady=5)
+        ttk.Label(dialog, text="NAME (e.g., Gmail):", font=('Arial', 10, 'bold')).pack(pady=5)
         name_entry = ttk.Entry(dialog, width=50)
         name_entry.pack(pady=5)
         
-        ttk.Label(dialog, text="URL:").pack(pady=5)
+        ttk.Label(dialog, text="WEBSITE URL:", font=('Arial', 10, 'bold')).pack(pady=5)
         url_entry = ttk.Entry(dialog, width=50)
         url_entry.pack(pady=5)
         
-        ttk.Label(dialog, text="Username:").pack(pady=5)
+        ttk.Label(dialog, text="USERNAME/EMAIL:", font=('Arial', 10, 'bold')).pack(pady=5)
         username_entry = ttk.Entry(dialog, width=50)
         username_entry.pack(pady=5)
         
-        ttk.Label(dialog, text="Password:").pack(pady=5)
+        ttk.Label(dialog, text="PASSWORD:", font=('Arial', 10, 'bold')).pack(pady=5)
         password_entry = ttk.Entry(dialog, width=50, show='*')
         password_entry.pack(pady=5)
         
@@ -244,11 +226,11 @@ class VaultGUI:
                 )
                 dialog.destroy()
                 self.refresh_list()
-                self.status.config(text="Credential added successfully")
+                self.status.config(text="✓ Credential added successfully")
             else:
-                messagebox.showerror("Error", "All fields are required")
+                messagebox.showerror("Error", "All fields are required!")
         
-        ttk.Button(dialog, text="Save", command=save).pack(pady=20)
+        ttk.Button(dialog, text="SAVE", command=save).pack(pady=20)
     
     def refresh_list(self):
         for item in self.tree.get_children():
@@ -258,15 +240,15 @@ class VaultGUI:
         for cred in self.credentials:
             self.tree.insert('', tk.END, values=(cred['name'], cred['url'], cred['username']), iid=cred['id'])
         
-        self.status.config(text=f"Loaded {len(self.credentials)} credentials")
+        self.status.config(text=f"✓ Loaded {len(self.credentials)} credentials")
     
     def delete_selected(self):
         selected = self.tree.selection()
         if selected:
-            if messagebox.askyesno("Confirm", "Delete selected credential?"):
+            if messagebox.askyesno("Confirm", "Delete this credential?"):
                 self.vault.delete_credential(int(selected[0]))
                 self.refresh_list()
-                self.status.config(text="Credential deleted")
+                self.status.config(text="✓ Credential deleted")
     
     def launch_selected(self):
         selected = self.tree.selection()
