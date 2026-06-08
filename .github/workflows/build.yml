@@ -9,10 +9,6 @@ jobs:
   build:
     runs-on: windows-latest
     
-    strategy:
-      matrix:
-        arch: [x86, x64]
-    
     steps:
     - uses: actions/checkout@v4
     
@@ -26,16 +22,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Build for ${{ matrix.arch }}
+    - name: Build 32-bit executable
       run: |
-        if (${{ matrix.arch }} -eq "x86") {
-          pyinstaller --onefile --windowed --name "SecureVault_x86" password_manager.py
-        } else {
-          pyinstaller --onefile --windowed --name "SecureVault_x64" password_manager.py
-        }
+        pyinstaller --onefile --windowed --name "SecureVault_x86" password_manager.py
     
-    - name: Upload artifacts
+    - name: Build 64-bit executable
+      run: |
+        pyinstaller --onefile --windowed --name "SecureVault_x64" password_manager.py
+    
+    - name: Upload both executables
       uses: actions/upload-artifact@v4
       with:
-        name: SecureVault-${{ matrix.arch }}
+        name: SecureVault
         path: dist/*.exe
